@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global secure helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isValidator() {
+      return isSignedIn() && (
+        request.auth.uid == 'user_sophie' || 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        getUserData(request.auth.uid).role == 'validator'
+      );
+    }
+
+    // MATCH: Users Profile
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      
+      // Only validators can create or delete users
+      allow create, delete: if isValidator();
+      
+      // Users can modify non-privilege fields. Validators can change anything.
+      allow update: if isSignedIn() && (
+        isValidator() || (
+          isOwner(userId) && 
+          request.resource.data.role == resource.data.role
+        )
+      );
+    }
+
+    // MATCH: Timesheets
+    match /timesheets/{timesheetId} {
+      // Any authenticated user can read timesheets (needed to check teammates or validations)
+      allow read: if isSignedIn();
+      
+      // Users can create timesheets for themselves; validators can create for anyone
+      allow create: if isSignedIn() && (
+        request.resource.data.userId == request.auth.uid || 
+        isValidator()
+      );
+      
+      // Timesheet updates
+      allow update: if isSignedIn() && (
+        // Case 1: Active Validator can modify status (approving, rejecting) or add notes
+        isValidator() || 
+        
+        // Case 2: Employee can update their own timesheet if it is currently in 'draft' or 'rejected' state.
+        (
+          resource.data.userId == request.auth.uid && 
+          (resource.data.status == 'draft' || resource.data.status == 'rejected') &&
+          (
+            // They can save as draft (status doesn't change) or submit (state changes to submitted)
+            request.resource.data.status == 'draft' || 
+            request.resource.data.status == 'submitted'
+          )
+        )
+      );
+
+      // Only validators can prune timesheets
+      allow delete: if isValidator();
+    }
+  }
+}

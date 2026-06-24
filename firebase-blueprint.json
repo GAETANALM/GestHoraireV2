@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account containing names, standard schedules, and configuration role.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "defaultSchedule": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "email",
+        "role",
+        "defaultSchedule"
+      ]
+    },
+    "Timesheet": {
+      "title": "Timesheet",
+      "description": "Weekly timesheet detailing active hours, custom changes, overtime notes, and approval status.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "userName": {
+          "type": "string"
+        },
+        "weekStartDate": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "days": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "userName",
+        "weekStartDate",
+        "status",
+        "days"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of system user profiles and standard employee hours."
+    },
+    "/timesheets/{timesheetId}": {
+      "schema": "Timesheet",
+      "description": "Collection of weekly timesheets for tracking and validator validation."
+    }
+  }
+}
