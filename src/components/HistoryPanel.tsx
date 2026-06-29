@@ -34,7 +34,8 @@ import {
   ThumbsUp,
   X,
   Download,
-  RotateCw
+  RotateCw,
+  Moon
 } from 'lucide-react';
 
 interface HistoryPanelProps {
@@ -738,8 +739,8 @@ export default function HistoryPanel({ timesheets, users, currentUser, onRefresh
               <span className="text-slate-800 font-mono">{formatHours(totalHoursWorked)}</span>
             </div>
             <div className="px-3 py-1 bg-white rounded-lg shadow-2xs border border-slate-100 flex items-center gap-1.5 font-bold">
-              <Clock className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-slate-500">Heures sup :</span>
+              <Moon className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-slate-500">Heures de nuit :</span>
               <span className="text-slate-800 font-mono">+{formatHours(totalOvertime)}</span>
             </div>
           </div>
@@ -960,7 +961,7 @@ export default function HistoryPanel({ timesheets, users, currentUser, onRefresh
                           {sheet.overtimeHours > 0 && (
                             <div className="text-right border-l border-slate-200 pl-2">
                               <span className="font-extrabold text-amber-700 font-mono text-xs">+{formatHours(sheet.overtimeHours)}</span>
-                              <span className="text-[9px] text-amber-500 font-black tracking-wider uppercase block leading-none">Heures up</span>
+                              <span className="text-[9px] text-amber-500 font-black tracking-wider uppercase block leading-none">Heures Nuit</span>
                             </div>
                           )}
                         </div>
@@ -1044,23 +1045,29 @@ export default function HistoryPanel({ timesheets, users, currentUser, onRefresh
               </div>
 
               {/* Summary info strip */}
-              <div className="bg-slate-50 px-6 py-4.5 border-b border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-center divide-x divide-slate-250/50">
+              <div className="bg-slate-50 px-6 py-4.5 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 text-center divide-x divide-slate-250/50">
                 <div>
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Requis (Contrat)</span>
                   <span className="text-xs font-bold text-slate-700 leading-tight block mt-0.5 font-sans">
                     {formatHours(selectedSheet.requiredHours)}
                   </span>
                 </div>
-                <div className="border-none md:border-solid">
+                <div className="border-none sm:border-solid">
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Effectué (+ Congés)</span>
                   <span className="text-xs font-black text-slate-800 mt-0.5 block font-mono">
                     {formatHours(selectedSheet.workedHours)}
                   </span>
                 </div>
-                <div>
+                <div className="border-none md:border-solid">
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Heures Sup</span>
                   <span className={`text-xs font-black mt-0.5 block font-mono ${selectedSheet.overtimeHours > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
                     +{formatHours(selectedSheet.overtimeHours)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Heures de nuit</span>
+                  <span className={`text-xs font-black mt-0.5 block font-mono ${(Object.values(selectedSheet.days || {}) as any[]).reduce((sum: number, d: any) => sum + (d.overtimeHours || 0), 0) > 0 ? 'text-indigo-600' : 'text-slate-400'}`}>
+                    {formatHours((Object.values(selectedSheet.days || {}) as any[]).reduce((sum: number, d: any) => sum + (d.overtimeHours || 0), 0))}
                   </span>
                 </div>
                 <div>
@@ -1136,6 +1143,7 @@ export default function HistoryPanel({ timesheets, users, currentUser, onRefresh
                         <th className="py-2.5 px-3.5">Durées de travail</th>
                         <th className="py-2.5 px-3.5 text-center">Effectué / Requis</th>
                         <th className="py-2.5 px-3.5">Heures Sup.</th>
+                        <th className="py-2.5 px-3.5">Heures de nuit</th>
                         <th className="py-2.5 px-3.5">Remarques / Notes</th>
                       </tr>
                     </thead>
@@ -1188,7 +1196,7 @@ export default function HistoryPanel({ timesheets, users, currentUser, onRefresh
                               <td className="py-3 px-3.5 text-slate-500 font-semibold select-none">
                                 {formatFrenchDate(rec.date).split(' ').slice(1, 3).join(' ')}
                               </td>
-                              <td colSpan={4} className="py-3 px-3.5">
+                              <td colSpan={5} className="py-3 px-3.5">
                                 <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] uppercase tracking-wide ${badgeClass}`}>
                                   {labelText}
                                 </span>
@@ -1266,17 +1274,23 @@ export default function HistoryPanel({ timesheets, users, currentUser, onRefresh
                               </div>
                             </td>
 
-                            <td className="py-3.5 px-3.5 text-slate-700 text-xs">
+                            <td className="py-3.5 px-3.5 text-slate-700 text-xs font-mono">
                               {calculatedOvertime > 0 ? (
-                                <span className="inline-flex px-2 py-0.5 rounded-md bg-amber-50 border border-amber-250 text-amber-800 font-black text-xs font-mono">
+                                <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 font-extrabold text-xs">
                                   +{formatHours(calculatedOvertime)}
                                 </span>
-                              ) : declaredOvertime > 0 ? (
-                                <span className="inline-flex px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-bold text-[10px] font-sans italic" title={`${formatHours(declaredOvertime)} déclarées complétant le déficit de la journée`}>
-                                  Complété (+{formatHours(declaredOvertime)})
+                              ) : (
+                                <span className="text-slate-300">-</span>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-3.5 text-slate-700 text-xs font-mono">
+                              {declaredOvertime > 0 ? (
+                                <span className="inline-flex px-2 py-0.5 rounded-md bg-amber-100 border border-amber-200 text-amber-850 font-black text-xs">
+                                  {formatHours(declaredOvertime)}
                                 </span>
                               ) : (
-                                <span className="text-slate-355 font-bold">-</span>
+                                <span className="text-slate-300">-</span>
                               )}
                             </td>
 

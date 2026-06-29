@@ -513,18 +513,6 @@ export default function LoginScreen({
               <span className="text-[11px] text-slate-400 font-sans">
                 Pointeuse centralisée : {users.filter(u => u.isActive !== false).length} salarié(s) actif(s)
               </span>
-              
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRegistering(true);
-                  setErrorMsg(null);
-                }}
-                className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 font-black hover:underline cursor-pointer active:scale-95"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                Nouveau salarié ? S'enregistrer
-              </button>
             </div>
           </div>
         )}

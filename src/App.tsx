@@ -43,10 +43,10 @@ export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>(() => {
-    return localStorage.getItem('g_current_user_id') || 'user_sophie';
+    return sessionStorage.getItem('g_current_user_id') || 'user_sophie';
   });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('g_auth_active') === 'true';
+    return sessionStorage.getItem('g_auth_active') === 'true';
   });
   const [activeTab, setActiveTab] = useState<'submission' | 'validation' | 'history' | 'users' | 'profile'>('submission');
   const [selectedMonth, setSelectedMonth] = useState<string>('2026-06');
@@ -57,11 +57,47 @@ export default function App() {
 
   // Sync state changes to storage
   useEffect(() => {
-    localStorage.setItem('g_current_user_id', currentUserId);
+    sessionStorage.setItem('g_current_user_id', currentUserId);
   }, [currentUserId]);
 
   useEffect(() => {
-    localStorage.setItem('g_auth_active', isAuthenticated ? 'true' : 'false');
+    sessionStorage.setItem('g_auth_active', isAuthenticated ? 'true' : 'false');
+  }, [isAuthenticated]);
+
+  // Inactivity timeout: 10 minutes (600,000 milliseconds)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setIsAuthenticated(false);
+        setAuthError("Votre session a expiré après 10 minutes d'inactivité. Vos modifications ont été conservées en brouillon.");
+        if (auth && auth.currentUser) {
+          import('firebase/auth').then(({ signOut }) => {
+            signOut(auth).catch(err => console.error("Sign out on inactivity timeout failed:", err));
+          });
+        }
+      }, INACTIVITY_LIMIT);
+    };
+
+    const events = ['mousedown', 'keydown', 'click', 'scroll', 'touchstart', 'mousemove'];
+
+    resetTimer();
+
+    events.forEach(event => {
+      window.addEventListener(event, resetTimer);
+    });
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => {
+        window.removeEventListener(event, resetTimer);
+      });
+    };
   }, [isAuthenticated]);
 
   // Initial load
@@ -116,6 +152,11 @@ export default function App() {
     const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
       setFirebaseUser(user);
       if (user) {
+        if (user.isAnonymous) {
+          console.log('Connected to Cloud Firestore as Anonymous Session.');
+          return;
+        }
+
         setLoadingCloud(true);
         setIsAuthenticated(true);
         try {
@@ -188,16 +229,26 @@ export default function App() {
           setLoadingCloud(false);
         }
       } else {
-        // Logged out
+        // Trigger anonymous sign-in if logged out
+        import('firebase/auth').then(({ signInAnonymously }) => {
+          signInAnonymously(auth).catch(err => console.warn("Anonymous sign in failed:", err));
+        });
       }
     });
 
-    return () => unsubscribeAuth();
-  }, [firebaseUser]);
+    // Auto trigger anonymous sign-in if not logged in with any account
+    if (!auth.currentUser) {
+      import('firebase/auth').then(({ signInAnonymously }) => {
+        signInAnonymously(auth).catch(err => console.warn("Anonymous sign in on startup failed:", err));
+      });
+    }
 
-  // Real-time listener for database changes when logged in
+    return () => unsubscribeAuth();
+  }, []);
+
+  // Real-time listener for database changes when Firebase is available
   useEffect(() => {
-    if (!isFirebaseConfigured || !db || !firebaseUser) return;
+    if (!isFirebaseConfigured || !db) return;
 
     // Real-time synchronization for users
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -227,11 +278,12 @@ export default function App() {
 
       if (dbUsers.length > 0) {
         setUsers(dbUsers);
+        localStorage.setItem('g_users', JSON.stringify(dbUsers));
       }
 
-      if (usersToMigrate.length > 0) {
-        const currentInMemoryUser = dbUsers.find(u => u.id === firebaseUser.uid);
-        if (currentInMemoryUser?.role === 'validator' || currentInMemoryUser?.isValidator || firebaseUser.email === 'digitalatelierlemee2@gmail.com') {
+      if (usersToMigrate.length > 0 && auth?.currentUser && !auth.currentUser.isAnonymous) {
+        const currentInMemoryUser = dbUsers.find(u => u.id === auth.currentUser?.uid);
+        if (currentInMemoryUser?.role === 'validator' || currentInMemoryUser?.isValidator || auth.currentUser?.email === 'digitalatelierlemee2@gmail.com') {
           usersToMigrate.forEach(async (u) => {
             try {
               await setDoc(doc(db, 'users', u.id), u);
@@ -253,6 +305,7 @@ export default function App() {
         dbSheets.push(doc.data() as Timesheet);
       });
       setTimesheets(dbSheets);
+      localStorage.setItem('g_timesheets', JSON.stringify(dbSheets));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'timesheets');
     });
@@ -261,7 +314,7 @@ export default function App() {
       unsubUsers();
       unsubTimesheets();
     };
-  }, [firebaseUser]);
+  }, []);
 
   const handleSignIn = async () => {
     if (!auth || !googleProvider) return;
@@ -329,7 +382,7 @@ export default function App() {
       return list;
     });
 
-    if (isFirebaseConfigured && db && firebaseUser) {
+    if (isFirebaseConfigured && db) {
       try {
         await setDoc(doc(db, 'timesheets', updatedSheet.id), updatedSheet);
       } catch (error) {
@@ -361,7 +414,7 @@ export default function App() {
       setTimesheets(updatedSheets);
       localStorage.setItem('g_timesheets', JSON.stringify(updatedSheets));
 
-      if (isFirebaseConfigured && db && firebaseUser) {
+      if (isFirebaseConfigured && db) {
         try {
           await setDoc(doc(db, 'users', migratedUser.id), migratedUser);
         } catch (error) {
@@ -370,7 +423,7 @@ export default function App() {
       }
     } else {
       updatedUsers = [...users, migratedUser];
-      if (isFirebaseConfigured && db && firebaseUser) {
+      if (isFirebaseConfigured && db) {
         try {
           await setDoc(doc(db, 'users', migratedUser.id), migratedUser);
         } catch (error) {
@@ -398,7 +451,7 @@ export default function App() {
     localStorage.setItem('g_timesheets', JSON.stringify(importedTimesheets));
 
     // 3. Propagate to active cloud database if connected
-    if (isFirebaseConfigured && db && firebaseUser) {
+    if (isFirebaseConfigured && db) {
       try {
         setLoadingCloud(true);
         
@@ -427,7 +480,7 @@ export default function App() {
     setTimesheets([]);
     localStorage.removeItem('g_timesheets');
 
-    if (isFirebaseConfigured && db && firebaseUser) {
+    if (isFirebaseConfigured && db) {
       try {
         setLoadingCloud(true);
         const querySnapshot = await getDocs(collection(db, 'timesheets'));
@@ -463,7 +516,7 @@ export default function App() {
     setTimesheets(list);
     localStorage.setItem('g_timesheets', JSON.stringify(list));
 
-    if (isFirebaseConfigured && db && firebaseUser) {
+    if (isFirebaseConfigured && db) {
       try {
         await setDoc(doc(db, 'timesheets', timesheetId), approvedSheet);
       } catch (error) {
@@ -487,7 +540,7 @@ export default function App() {
     setTimesheets(list);
     localStorage.setItem('g_timesheets', JSON.stringify(list));
 
-    if (isFirebaseConfigured && db && firebaseUser) {
+    if (isFirebaseConfigured && db) {
       try {
         await setDoc(doc(db, 'timesheets', timesheetId), rejectedSheet);
       } catch (error) {
