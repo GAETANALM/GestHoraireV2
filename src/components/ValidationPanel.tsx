@@ -55,6 +55,7 @@ export default function ValidationPanel({
     
     let regularHours = 0;
     let overtimeHours = 0;
+    let totalNightHours = 0;
     let activeDays = 0;
     let requiredHours = 0;
     let workedHours = 0;
@@ -138,6 +139,7 @@ export default function ValidationPanel({
 
       regularHours += (baseStandard + overtimeToComplete);
       overtimeHours += (totalOvertimeForDay - overtimeToComplete);
+      totalNightHours += declaredOvertime;
       workedHours += dayPhysicalWorked + declaredOvertime + creditedAbsence;
     });
 
@@ -146,6 +148,7 @@ export default function ValidationPanel({
       userProfile,
       regularHours,
       overtimeHours,
+      totalNightHours,
       requiredHours,
       workedHours,
       totalHours: workedHours,
@@ -395,6 +398,44 @@ export default function ValidationPanel({
                       dont {formatHours(selectedSheet.overtimeHours)} supp.
                     </span>
                   )}
+                </div>
+              </div>
+
+              {/* Récapitulatif Mensuel */}
+              <div className="px-6 py-5 bg-slate-50/50 border-b border-slate-200">
+                <h5 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Récapitulatif mensuel :</h5>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Card 1: Heures Minimum */}
+                  <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Min. Mensuel Requis</span>
+                    <span className="text-lg font-black text-slate-700 mt-1 block">
+                      {formatHours(selectedSheet.requiredHours)}
+                    </span>
+                  </div>
+
+                  {/* Card 2: Heures Effectuées */}
+                  <div className="p-4 bg-white rounded-2xl border border-indigo-200 shadow-2xs">
+                    <span className="text-[10px] text-indigo-500 font-extrabold uppercase tracking-wider block font-sans">Total Effectué</span>
+                    <span className="text-lg font-black text-indigo-700 mt-1 block">
+                      {formatHours(selectedSheet.totalHours)}
+                    </span>
+                  </div>
+
+                  {/* Card 3: Heures Supplémentaires */}
+                  <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] text-emerald-500 font-extrabold uppercase tracking-wider block">Heures Supplémentaires</span>
+                    <span className={`text-lg font-black mt-1 block ${selectedSheet.overtimeHours > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {selectedSheet.overtimeHours > 0 ? `+${formatHours(selectedSheet.overtimeHours)}` : '0.00 h'}
+                    </span>
+                  </div>
+
+                  {/* Card 4: Heures de Nuit */}
+                  <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] text-amber-500 font-extrabold uppercase tracking-wider block">Heures de Nuit</span>
+                    <span className={`text-lg font-black mt-1 block ${selectedSheet.totalNightHours > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                      {selectedSheet.totalNightHours > 0 ? `${formatHours(selectedSheet.totalNightHours)}` : '0.00 h'}
+                    </span>
+                  </div>
                 </div>
               </div>
 

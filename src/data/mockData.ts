@@ -128,44 +128,9 @@ export function generateInitialTimesheets(users: User[]): Timesheet[] {
     lastMonthSheet.validatedAt = '2026-06-01T09:00:00Z';
     sheets.push(lastMonthSheet);
     
-    // Current month timesheet - set different statuses for demo
+    // Current month timesheet - all initialized as draft in test mode
     const currentMonthSheet = buildEmptyTimesheet(user, currentMonth);
-    
-    if (user.id === 'user_jean') {
-      // Jean has submitted his sheet with modified hours and key overtime records
-      currentMonthSheet.status = 'submitted';
-      
-      if (currentMonthSheet.days['2026-06-02']) {
-        currentMonthSheet.days['2026-06-02'].afternoonHours = 5.0; // worked extra 1.5h
-        currentMonthSheet.days['2026-06-02'].overtimeHours = 1.5;
-        currentMonthSheet.days['2026-06-02'].overtimeNote = 'Urgence livraison serveur de production et tests.';
-      }
-      
-      if (currentMonthSheet.days['2026-06-04']) {
-        currentMonthSheet.days['2026-06-04'].overtimeHours = 1.0;
-        currentMonthSheet.days['2026-06-04'].overtimeNote = 'Assistance technique tardive pour un client.';
-      }
-      currentMonthSheet.submittedAt = '2026-06-02T17:45:00Z';
-    } else if (user.id === 'user_marie') {
-      // Marie is in draft, has modified some hours
-      currentMonthSheet.status = 'draft';
-      if (currentMonthSheet.days['2026-06-01']) {
-        currentMonthSheet.days['2026-06-01'].morningHours = 4.5;
-        currentMonthSheet.days['2026-06-01'].afternoonHours = 4.5;
-      }
-    } else if (user.id === 'user_lucas') {
-      // Lucas submitted but it was rejected because he forgot the overtime note
-      currentMonthSheet.status = 'rejected';
-      if (currentMonthSheet.days['2026-06-01']) {
-        currentMonthSheet.days['2026-06-01'].overtimeHours = 2.0;
-        currentMonthSheet.days['2026-06-01'].overtimeNote = ''; // Empty note - reason for rejection
-      }
-      currentMonthSheet.rejectionReason = "Merci d'ajouter une note détaillant la raison de tes 2h supplémentaires pour le lundi 1er Juin.";
-      currentMonthSheet.submittedAt = '2026-06-02T16:00:00Z';
-    } else if (user.id === 'user_sophie') {
-      // Sophie is in draft
-      currentMonthSheet.status = 'draft';
-    }
+    currentMonthSheet.status = 'draft';
     
     sheets.push(currentMonthSheet);
   });

@@ -54,6 +54,9 @@ export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<any | null>(null);
   const [loadingCloud, setLoadingCloud] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showGdprBanner, setShowGdprBanner] = useState<boolean>(() => {
+    return !localStorage.getItem('g_gdpr_consent_v1');
+  });
 
   // Sync state changes to storage
   useEffect(() => {
@@ -611,22 +614,60 @@ export default function App() {
 
   if (!isAuthenticated) {
     return (
-      <LoginScreen
-        users={users}
-        onLogin={(id) => {
-          setCurrentUserId(id);
-          setIsAuthenticated(true);
-        }}
-        onSignUp={(newUser) => {
-          handleSaveUser(newUser);
-          setCurrentUserId(newUser.id);
-          setIsAuthenticated(true);
-        }}
-        onUpdateUser={handleSaveUser}
-        isFirebaseActive={isFirebaseConfigured}
-        onSignInWithGoogle={handleSignIn}
-        authError={authError}
-      />
+      <>
+        <LoginScreen
+          users={users}
+          onLogin={(id) => {
+            setCurrentUserId(id);
+            setIsAuthenticated(true);
+          }}
+          onSignUp={(newUser) => {
+            handleSaveUser(newUser);
+            setCurrentUserId(newUser.id);
+            setIsAuthenticated(true);
+          }}
+          onUpdateUser={handleSaveUser}
+          isFirebaseActive={isFirebaseConfigured}
+          onSignInWithGoogle={handleSignIn}
+          authError={authError}
+        />
+        {showGdprBanner && (
+          <div className="fixed bottom-0 left-0 right-0 bg-slate-900 text-white z-50 p-4 sm:p-5 border-t border-slate-800 shadow-2xl animate-fade-in">
+            <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="space-y-1 text-left">
+                <h4 className="text-xs font-black text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                  🛡️ Respect de la confidentialité & RGPD
+                </h4>
+                <p className="text-[11px] text-slate-350 leading-relaxed max-w-4xl">
+                  Pour assurer le fonctionnement de GestHoraire Pro, nous stockons des données de présence indispensables (vos fiches horaires d'heures travaillées, code PIN et préférences de session). Aucun traceur publicitaire ou cookies tiers ne sont utilisés. En continuant, vous acceptez cette conservation nécessaire à la gestion de votre temps de travail.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0 self-end md:self-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.setItem('g_gdpr_consent_v1', 'essentials');
+                    setShowGdprBanner(false);
+                  }}
+                  className="text-[10px] text-slate-400 hover:text-white font-extrabold px-3 py-2 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Essentiels uniquement
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.setItem('g_gdpr_consent_v1', 'all');
+                    setShowGdprBanner(false);
+                  }}
+                  className="bg-indigo-650 hover:bg-indigo-600 text-white text-[11px] font-black uppercase px-4 py-2 rounded-xl transition cursor-pointer shadow-md shadow-indigo-900/35 active:scale-95 hover:scale-[1.01]"
+                >
+                  Tout Accepter
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -906,6 +947,43 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {showGdprBanner && (
+        <div className="fixed bottom-0 left-0 right-0 bg-slate-900 text-white z-50 p-4 sm:p-5 border-t border-slate-800 shadow-2xl animate-fade-in">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="space-y-1 text-left">
+              <h4 className="text-xs font-black text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                🛡️ Respect de la confidentialité & RGPD
+              </h4>
+              <p className="text-[11px] text-slate-350 leading-relaxed max-w-4xl">
+                Pour assurer le fonctionnement de GestHoraire Pro, nous stockons des données de présence indispensables (vos fiches horaires d'heures travaillées, code PIN et préférences de session). Aucun traceur publicitaire ou cookies tiers ne sont utilisés. En continuant, vous acceptez cette conservation nécessaire à la gestion de votre temps de travail.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 self-end md:self-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('g_gdpr_consent_v1', 'essentials');
+                  setShowGdprBanner(false);
+                }}
+                className="text-[10px] text-slate-400 hover:text-white font-extrabold px-3 py-2 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                Essentiels uniquement
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('g_gdpr_consent_v1', 'all');
+                  setShowGdprBanner(false);
+                }}
+                className="bg-indigo-650 hover:bg-indigo-600 text-white text-[11px] font-black uppercase px-4 py-2 rounded-xl transition cursor-pointer shadow-md shadow-indigo-900/35 active:scale-95 hover:scale-[1.01]"
+              >
+                Tout Accepter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

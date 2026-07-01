@@ -65,6 +65,7 @@ export default function LoginScreen({
   const [customPin, setCustomPin] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>('employee');
+  const [gdprConsent, setGdprConsent] = useState(false);
   
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -213,6 +214,11 @@ export default function LoginScreen({
       return;
     }
 
+    if (!gdprConsent) {
+      setErrorMsg('Vous devez accepter la politique de traitement des données RGPD.');
+      return;
+    }
+
     // Check for duplicates
     if (users.some(u => u.name.toLowerCase().trim() === name.toLowerCase().trim())) {
       setErrorMsg('Un compte existe déjà avec ce nom.');
@@ -240,6 +246,7 @@ export default function LoginScreen({
     // Clear inputs
     setName('');
     setCustomPin('');
+    setGdprConsent(false);
   };
 
   return (
@@ -447,6 +454,20 @@ export default function LoginScreen({
                   </select>
                 </div>
               </div>
+            </div>
+
+            <div className="flex items-start gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/60 my-2">
+              <input
+                type="checkbox"
+                id="gdpr-signup-consent"
+                required
+                checked={gdprConsent}
+                onChange={(e) => setGdprConsent(e.target.checked)}
+                className="mt-0.5 h-4 w-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+              />
+              <label htmlFor="gdpr-signup-consent" className="text-[10px] text-slate-500 leading-relaxed font-semibold cursor-pointer select-none">
+                J'accepte que mes fiches d'heures et de présence soient collectées et conservées de manière sécurisée par l'employeur pour la gestion de ma paie, conformément à la réglementation RGPD.
+              </label>
             </div>
 
             <button

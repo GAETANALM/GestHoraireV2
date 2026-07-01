@@ -49,7 +49,7 @@ export default function UserProfile({
   isFirebaseActive 
 }: UserProfileProps) {
   // Sub-tabs in profile management page
-  const [subTab, setSubTab] = useState<'info' | 'schedule' | 'stats' | 'backup'>('info');
+  const [subTab, setSubTab] = useState<'info' | 'schedule' | 'stats' | 'backup' | 'rgpd'>('info');
 
   // Input states for account info
   const [name, setName] = useState(currentUser.name);
@@ -179,6 +179,49 @@ export default function UserProfile({
       setTimeout(() => setMessage(null), 4000);
     } catch (err: any) {
       setMessage({ type: 'error', text: `Échec de l'exportation : ${err.message || err}` });
+    }
+  };
+
+  // Export personal data for GDPR portability
+  const handleExportPersonalData = () => {
+    try {
+      const myTimesheets = allTimesheets.filter(t => t.userId === currentUser.id);
+      const exportObj = {
+        version: "1.0",
+        exportDate: new Date().toISOString(),
+        rgpdCompliance: {
+          regulatoryFramework: "RGPD (Règlement Général sur la Protection des Données)",
+          dataSubjectRights: "Droit d'accès et de portabilité (Article 15 & 20 du RGPD)"
+        },
+        userProfile: {
+          id: currentUser.id,
+          name: currentUser.name,
+          email: currentUser.email,
+          role: currentUser.role,
+          defaultSchedule: currentUser.defaultSchedule,
+          isValidator: currentUser.isValidator,
+          isAdmin: currentUser.isAdmin
+        },
+        timesheets: myTimesheets
+      };
+      
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+        JSON.stringify(exportObj, null, 2)
+      )}`;
+      
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", jsonString);
+      
+      const dateStr = new Date().toISOString().split('T')[0];
+      downloadAnchor.setAttribute("download", `mon_export_rgpd_${currentUser.name.replace(/\s+/g, '_').toLowerCase()}_${dateStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      
+      setMessage({ type: 'success', text: 'Portabilité RGPD : Vos données personnelles d\'activité ont été exportées avec succès !' });
+      setTimeout(() => setMessage(null), 4000);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: `Échec de l'exportation RGPD : ${err.message || err}` });
     }
   };
 
@@ -633,6 +676,18 @@ export default function UserProfile({
         >
           <TrendingUp className="w-3.5 h-3.5" />
           Mes statistiques d'activités
+        </button>
+        <button
+          type="button"
+          onClick={() => { setSubTab('rgpd'); setMessage(null); }}
+          className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+            subTab === 'rgpd'
+              ? 'bg-white text-indigo-600 shadow-xs'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+          Confidentialité & RGPD
         </button>
         {currentUser.isAdmin && (
           <button
@@ -1126,6 +1181,103 @@ export default function UserProfile({
                 </div>
                 <div className="text-right">
                   <span className="text-sm font-black text-slate-800 bg-rose-50 text-rose-800 border border-rose-200 px-3 py-1.5 rounded-full">{sickLeaveDays} jours</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {subTab === 'rgpd' && (
+        <div className="space-y-8 animate-fade-in">
+          <div>
+            <h3 className="text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-indigo-600" />
+              Politique de Confidentialité & Droits RGPD
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Conformément au Règlement Général sur la Protection des Données (RGPD), vous disposez d'un contrôle total sur vos données à caractère personnel collectées par cette application.
+            </p>
+          </div>
+
+          {/* RGPD Core information grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-slate-50/50 p-6 rounded-3xl border border-slate-200/80 space-y-4">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-1.5">
+                📋 Information des salariés (Art. 13 & 14)
+              </h4>
+              <div className="space-y-3.5 text-xs text-slate-650 leading-relaxed">
+                <div>
+                  <strong className="text-slate-800 block">Responsable du traitement :</strong>
+                  <span className="text-[11px] text-slate-500">L'entreprise (Service des Ressources Humaines / Direction).</span>
+                </div>
+                <div>
+                  <strong className="text-slate-800 block">Finalités du traitement :</strong>
+                  <span className="text-[11px] text-slate-500">Enregistrement des temps de présence quotidienne, suivi des absences (congés, maladie) et gestion des demandes d'heures supplémentaires pour l'édition des bulletins de paie.</span>
+                </div>
+                <div>
+                  <strong className="text-slate-800 block">Base légale du traitement :</strong>
+                  <span className="text-[11px] text-slate-500 font-medium bg-indigo-50/80 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">Exécution du contrat de travail (Art. 6.1.b du RGPD)</span> et obligation légale de l'employeur de contrôler la durée du travail.
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50/50 p-6 rounded-3xl border border-slate-200/80 space-y-4">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-1.5">
+                🔒 Conservation & Destinataires
+              </h4>
+              <div className="space-y-3.5 text-xs text-slate-650 leading-relaxed">
+                <div>
+                  <strong className="text-slate-800 block">Durée de conservation :</strong>
+                  <span className="text-[11px] text-slate-500">Les fiches horaires d'activité et justificatifs d'heures supplémentaires sont conservés pendant une durée de <span className="font-extrabold text-slate-700">3 ans</span>, correspondant à la durée légale de prescription en matière de rappel de salaires (droit du travail).</span>
+                </div>
+                <div>
+                  <strong className="text-slate-800 block">Destinataires autorisés :</strong>
+                  <span className="text-[11px] text-slate-500">Le salarié concerné, les supérieurs hiérarchiques habilités (directeurs/validateurs d'équipe) et les gestionnaires de paie de l'entreprise.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Cards: Export (Portability) and Deletion (Oblivion) */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 space-y-6">
+            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2 pb-4 border-b border-slate-100">
+              ⚡ Exercer vos droits RGPD
+            </h4>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* PORTABILITY (EXPORT) */}
+              <div className="p-5 bg-indigo-50/30 rounded-2xl border border-indigo-100/50 flex flex-col justify-between space-y-4">
+                <div className="space-y-2">
+                  <span className="text-xs font-extrabold text-indigo-900 block flex items-center gap-1.5">
+                    📥 Droit à la portabilité (Art. 20)
+                  </span>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Vous pouvez à tout moment exporter et télécharger l'ensemble de vos données d'activité de pointage, d'absences, de grille horaire et d'informations de profil au format structuré standardisé JSON.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportPersonalData}
+                  className="w-full sm:w-auto self-start bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold uppercase py-2.5 px-4 rounded-xl transition cursor-pointer shadow-xs inline-flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Exporter mes données personnelles
+                </button>
+              </div>
+
+              {/* RIGHT TO BE FORGOTTEN (DELETION) */}
+              <div className="p-5 bg-rose-50/20 rounded-2xl border border-rose-100/40 flex flex-col justify-between space-y-4">
+                <div className="space-y-2">
+                  <span className="text-xs font-extrabold text-rose-900 block flex items-center gap-1.5">
+                    🔏 Droit à l'effacement et opposition (Art. 17 & 21)
+                  </span>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Pour des raisons légales de paie et de contrôle légal du temps de travail, les fiches validées ne peuvent pas être effacées unilatéralement. Vous pouvez cependant demander la désactivation de votre profil ou l'effacement après prescription légale.
+                  </p>
+                </div>
+                <div className="text-[10px] text-slate-500 bg-white/85 p-3 rounded-xl border border-slate-100 leading-relaxed">
+                  ✍️ Pour toute demande d'opposition ou de suppression définitive de votre compte pointeuse, veuillez contacter la direction / délégué à la protection des données (DPD) de l'entreprise à l'adresse email : <strong className="text-slate-800">diane.delambert@atelier-lemee.com</strong>
                 </div>
               </div>
             </div>
