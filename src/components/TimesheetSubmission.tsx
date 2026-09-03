@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
 import { Timesheet, DayRecord, WeekDayId, User } from '../types';
 import { exportSingleTimesheetToExcel } from '../utils/excelUtils';
@@ -32,12 +32,22 @@ import {
   ChevronRight,
   Info,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Zap,
+  Check,
+  X,
+  SlidersHorizontal,
+  Palmtree,
+  Sparkles,
+  TrendingUp,
+  History,
+  Briefcase
 } from 'lucide-react';
 
 interface TimesheetSubmissionProps {
   currentUser: User;
   timesheet: Timesheet;
+  allTimesheets?: Timesheet[];
   onSaveTimesheet: (timesheet: Timesheet) => void;
   onSelectMonth: (monthDateStr: string) => void;
 }
@@ -45,6 +55,7 @@ interface TimesheetSubmissionProps {
 export default function TimesheetSubmission({
   currentUser,
   timesheet: initialTimesheet,
+  allTimesheets,
   onSaveTimesheet,
   onSelectMonth,
 }: TimesheetSubmissionProps) {
@@ -52,6 +63,27 @@ export default function TimesheetSubmission({
   const [timesheet, setTimesheet] = useState<Timesheet>(initialTimesheet);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [draftSavedMessage, setDraftSavedMessage] = useState<string | null>(null);
+
+  // View mode: 'week' for week-by-week focused view, 'month' for full month overview
+  const [viewMode, setViewMode] = useState<'week' | 'month'>(() => {
+    return (localStorage.getItem('gesthoraire_timesheet_view_mode') as 'week' | 'month') || 'week';
+  });
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState<number>(0);
+
+  // Quick fill modal state
+  const [fillModalOpen, setFillModalOpen] = useState(false);
+  const [fillModalTarget, setFillModalTarget] = useState<{
+    type: 'week' | 'month';
+    title: string;
+    dates: string[];
+  } | null>(null);
+  const [fillModalTab, setFillModalTab] = useState<'contract' | 'custom' | 'absence' | 'clear'>('contract');
+  const [customMorningHours, setCustomMorningHours] = useState<number>(3.5);
+  const [customAfternoonHours, setCustomAfternoonHours] = useState<number>(3.5);
+  const [customOnlyWorkdays, setCustomOnlyWorkdays] = useState<boolean>(true);
+  const [absenceType, setAbsenceType] = useState<'paid' | 'unpaid' | 'sick' | 'recovery' | 'other'>('paid');
+  const [absenceReason, setAbsenceReason] = useState<string>('');
+  const [absenceOnlyWorkdays, setAbsenceOnlyWorkdays] = useState<boolean>(true);
 
   // Sync state if initialTimesheet changes from parent
   useEffect(() => {
@@ -461,8 +493,25 @@ export default function TimesheetSubmission({
     return groups;
   }, [timesheet.monthDate]);
 
+  // When changing month, find if today's date falls in one of the weeks, or reset to 0
+  useEffect(() => {
+    if (daysByWeek.length === 0) return;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const foundIdx = daysByWeek.findIndex(g => g.days.some(d => d.date === todayStr));
+    if (foundIdx >= 0) {
+      setSelectedWeekIndex(foundIdx);
+    } else {
+      setSelectedWeekIndex(0);
+    }
+  }, [timesheet.monthDate, daysByWeek.length]);
+
+  const safeWeekIndex = Math.max(0, Math.min(selectedWeekIndex, Math.max(0, daysByWeek.length - 1)));
+  const weeksToRender = viewMode === 'week'
+    ? (daysByWeek[safeWeekIndex] ? [daysByWeek[safeWeekIndex]] : [])
+    : daysByWeek;
+
   // Helper to calculate total hours for a week group
-  const calculateWeekTotals = (daysList: { dayId: WeekDayId; label: string; date: string }[]) => {
+  const calculateWeekTotals = useCallback((daysList: { dayId: WeekDayId; label: string; date: string }[]) => {
     let regular = 0;
     let overtime = 0;
     let absentDays = 0;
@@ -515,6 +564,251 @@ export default function TimesheetSubmission({
       required,
       declared
     };
+  }, [timesheet.days, currentUser.defaultSchedule]);
+
+  // Current selected week group and its totals
+  const currentWeekGroup = daysByWeek[safeWeekIndex] || null;
+  const currentWeekTotals = useMemo(() => {
+    if (!currentWeekGroup) return null;
+    return calculateWeekTotals(currentWeekGroup.days);
+  }, [currentWeekGroup, calculateWeekTotals]);
+
+  // Previous weeks summary (weeks 0 to safeWeekIndex - 1)
+  const previousWeeksSummary = useMemo(() => {
+    const previousWeeks = daysByWeek.slice(0, safeWeekIndex).map((w, idx) => {
+      const totals = calculateWeekTotals(w.days);
+      const firstDay = w.days[0];
+      const lastDay = w.days[w.days.length - 1];
+      const dateRangeLabel = firstDay && lastDay
+        ? `${new Date(firstDay.date + 'T00:00:00').getDate()}-${new Date(lastDay.date + 'T00:00:00').getDate()} ${new Date(lastDay.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short' })}`
+        : `Semaine ${idx + 1}`;
+      const balance = totals.declared - totals.required;
+      return {
+        index: idx,
+        weekNumber: idx + 1,
+        dateRangeLabel,
+        totals,
+        balance,
+      };
+    });
+
+    const totalPreviousOvertime = previousWeeks.reduce((acc, curr) => acc + curr.totals.overtime, 0);
+    const totalPreviousDeclared = previousWeeks.reduce((acc, curr) => acc + curr.totals.declared, 0);
+    const totalPreviousRequired = previousWeeks.reduce((acc, curr) => acc + curr.totals.required, 0);
+    const totalPreviousBalance = totalPreviousDeclared - totalPreviousRequired;
+
+    return {
+      previousWeeks,
+      totalPreviousOvertime,
+      totalPreviousDeclared,
+      totalPreviousRequired,
+      totalPreviousBalance,
+    };
+  }, [daysByWeek, safeWeekIndex, calculateWeekTotals]);
+
+  // Previous month timesheet check (if allTimesheets was provided)
+  const previousMonthSheet = useMemo(() => {
+    if (!allTimesheets) return null;
+    const [yearStr, monthStr] = timesheet.monthDate.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10) - 1;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    }
+    const prevMonthStr = `${year}-${String(month).padStart(2, '0')}`;
+    return allTimesheets.find(t => t.userId === timesheet.userId && t.monthDate === prevMonthStr);
+  }, [allTimesheets, timesheet.userId, timesheet.monthDate]);
+
+  const previousMonthOvertime = useMemo(() => {
+    if (!previousMonthSheet) return 0;
+    let ot = 0;
+    Object.values(previousMonthSheet.days || {}).forEach((d: DayRecord) => {
+      ot += d.overtimeHours || 0;
+    });
+    return ot;
+  }, [previousMonthSheet]);
+
+  const weekDeclared = currentWeekTotals?.declared || 0;
+  const weekRequired = currentWeekTotals?.required || 0;
+  const weekOvertime = currentWeekTotals?.overtime || 0;
+  const weekBalance = weekDeclared - weekRequired;
+  const weekCompletionRate = weekRequired > 0 
+    ? Math.round((weekDeclared / weekRequired) * 100) 
+    : (weekDeclared > 0 ? 100 : 0);
+
+  const cumulativeOvertime = (previousWeeksSummary.totalPreviousOvertime || 0) + weekOvertime;
+  const cumulativeDeclared = (previousWeeksSummary.totalPreviousDeclared || 0) + weekDeclared;
+  const cumulativeRequired = (previousWeeksSummary.totalPreviousRequired || 0) + weekRequired;
+  const cumulativeBalance = cumulativeDeclared - cumulativeRequired;
+
+  const handleViewModeChange = (mode: 'week' | 'month') => {
+    setViewMode(mode);
+    localStorage.setItem('gesthoraire_timesheet_view_mode', mode);
+  };
+
+  const openFillModal = (type: 'week' | 'month', dates: string[], title: string) => {
+    if (isReadOnly) return;
+    setFillModalTarget({ type, title, dates });
+    setFillModalTab('contract');
+    setFillModalOpen(true);
+  };
+
+  const handleFillContract = (dates: string[]) => {
+    if (isReadOnly) return;
+    const updatedDays = { ...timesheet.days };
+    dates.forEach(dateStr => {
+      const existing = updatedDays[dateStr];
+      if (!existing) return;
+      const defaultDay = currentUser.defaultSchedule[existing.dayId];
+      if (defaultDay) {
+        updatedDays[dateStr] = {
+          ...existing,
+          active: defaultDay.active,
+          morningHours: defaultDay.morningHours,
+          afternoonHours: defaultDay.afternoonHours,
+          overtimeHours: 0,
+          overtimeNote: '',
+          paidLeave: false,
+          unpaidLeave: false,
+          sickLeave: false,
+          notPresent: false,
+          absenceDuration: undefined,
+          absenceType: undefined,
+          absenceReason: undefined,
+        };
+      }
+    });
+
+    const newSheet = { ...timesheet, days: updatedDays };
+    setTimesheet(newSheet);
+    onSaveTimesheet(newSheet);
+    setDraftSavedMessage('Horaires contractuels appliqués avec succès !');
+    setTimeout(() => setDraftSavedMessage(null), 3500);
+    setFillModalOpen(false);
+  };
+
+  const handleFillCustom = (dates: string[], morning: number, afternoon: number, onlyWorkdays: boolean) => {
+    if (isReadOnly) return;
+    const updatedDays = { ...timesheet.days };
+    dates.forEach(dateStr => {
+      const existing = updatedDays[dateStr];
+      if (!existing) return;
+      const isWeekend = existing.dayId === 'saturday' || existing.dayId === 'sunday';
+      if (onlyWorkdays && isWeekend) {
+        updatedDays[dateStr] = {
+          ...existing,
+          active: false,
+          morningHours: 0,
+          afternoonHours: 0,
+          overtimeHours: 0,
+          notPresent: false,
+        };
+      } else {
+        const total = morning + afternoon;
+        updatedDays[dateStr] = {
+          ...existing,
+          active: total > 0,
+          morningHours: morning,
+          afternoonHours: afternoon,
+          overtimeHours: 0,
+          overtimeNote: '',
+          notPresent: false,
+          absenceDuration: undefined,
+          absenceType: undefined,
+          absenceReason: undefined,
+        };
+      }
+    });
+
+    const newSheet = { ...timesheet, days: updatedDays };
+    setTimesheet(newSheet);
+    onSaveTimesheet(newSheet);
+    setDraftSavedMessage(`Horaires personnalisés (${morning}h matin + ${afternoon}h après-midi) appliqués !`);
+    setTimeout(() => setDraftSavedMessage(null), 3500);
+    setFillModalOpen(false);
+  };
+
+  const handleFillAbsence = (
+    dates: string[],
+    type: 'paid' | 'unpaid' | 'sick' | 'recovery' | 'other',
+    reason: string,
+    onlyWorkdays: boolean
+  ) => {
+    if (isReadOnly) return;
+    const updatedDays = { ...timesheet.days };
+    dates.forEach(dateStr => {
+      const existing = updatedDays[dateStr];
+      if (!existing) return;
+      const defaultDay = currentUser.defaultSchedule[existing.dayId];
+      const isScheduled = defaultDay ? defaultDay.active : (existing.dayId !== 'saturday' && existing.dayId !== 'sunday');
+
+      if (onlyWorkdays && !isScheduled) {
+        updatedDays[dateStr] = {
+          ...existing,
+          active: false,
+          notPresent: false,
+          morningHours: 0,
+          afternoonHours: 0,
+          overtimeHours: 0,
+        };
+      } else {
+        updatedDays[dateStr] = {
+          ...existing,
+          active: false,
+          notPresent: true,
+          absenceDuration: 'full',
+          absenceType: type,
+          absenceReason: reason || '',
+          morningHours: 0,
+          afternoonHours: 0,
+          overtimeHours: 0,
+          overtimeNote: '',
+        };
+      }
+    });
+
+    const newSheet = { ...timesheet, days: updatedDays };
+    setTimesheet(newSheet);
+    onSaveTimesheet(newSheet);
+    const labelMap: Record<string, string> = {
+      paid: 'Congés payés',
+      unpaid: 'Congé sans solde',
+      sick: 'Arrêt maladie',
+      recovery: 'Récupération',
+      other: 'Absence'
+    };
+    setDraftSavedMessage(`Période enregistrée en ${labelMap[type] || 'Absence'} !`);
+    setTimeout(() => setDraftSavedMessage(null), 3500);
+    setFillModalOpen(false);
+  };
+
+  const handleClearDays = (dates: string[]) => {
+    if (isReadOnly) return;
+    const updatedDays = { ...timesheet.days };
+    dates.forEach(dateStr => {
+      const existing = updatedDays[dateStr];
+      if (!existing) return;
+      updatedDays[dateStr] = {
+        ...existing,
+        active: false,
+        morningHours: 0,
+        afternoonHours: 0,
+        overtimeHours: 0,
+        overtimeNote: '',
+        notPresent: false,
+        absenceDuration: undefined,
+        absenceType: undefined,
+        absenceReason: undefined,
+      };
+    });
+
+    const newSheet = { ...timesheet, days: updatedDays };
+    setTimesheet(newSheet);
+    onSaveTimesheet(newSheet);
+    setDraftSavedMessage('Période réinitialisée à zéro (0h).');
+    setTimeout(() => setDraftSavedMessage(null), 3500);
+    setFillModalOpen(false);
   };
 
   const handleDayValueChange = (dayKey: string, field: keyof DayRecord, value: any) => {
@@ -928,41 +1222,408 @@ export default function TimesheetSubmission({
 
       {/* CORE DAY-BY-DAY LIST (Bento Card Layout) */}
       <div id="timesheet-form-section" className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="p-6 bg-slate-50/50 border-b border-slate-250 flex items-center justify-between flex-wrap gap-2">
-          <h3 className="text-sm font-extrabold text-slate-950 tracking-tight">Saisie des horaires quotidiens</h3>
+        <div className="p-6 bg-slate-50/50 border-b border-slate-250 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h3 className="text-sm font-extrabold text-slate-950 tracking-tight">Saisie des horaires quotidiens</h3>
+            
+            {/* View Mode Toggle: Week vs Month */}
+            <div className="flex items-center bg-slate-200/70 p-1 rounded-2xl border border-slate-250">
+              <button
+                type="button"
+                id="btn-view-week"
+                onClick={() => handleViewModeChange('week')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  viewMode === 'week'
+                    ? 'bg-white text-indigo-600 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Vue Semaine</span>
+              </button>
+              <button
+                type="button"
+                id="btn-view-month"
+                onClick={() => handleViewModeChange('month')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  viewMode === 'month'
+                    ? 'bg-white text-indigo-600 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Vue Mois complet</span>
+              </button>
+            </div>
+          </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-2">
+            {!isReadOnly && (
+              <button
+                id="btn-fill-month"
+                type="button"
+                onClick={() => openFillModal('month', daysList.map(d => d.date), `Mois complet (${formatFrenchMonth(timesheet.monthDate)})`)}
+                className="text-xs text-indigo-700 hover:text-indigo-900 font-extrabold bg-indigo-50 hover:bg-indigo-100 px-3.5 py-2.5 rounded-2xl transition-all hover:scale-105 cursor-pointer inline-flex items-center gap-1.5 border border-indigo-200 shadow-2xs"
+                title="Remplir tout le mois avec les horaires du contrat ou selon vos critères"
+              >
+                <Zap className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Remplir le mois</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleDownloadPdf}
-              className="text-xs text-emerald-700 hover:text-emerald-850 font-extrabold bg-emerald-50 hover:bg-emerald-100 px-4 py-2.5 rounded-full transition-all hover:scale-105 cursor-pointer inline-flex items-center gap-1.5 border border-emerald-250"
+              className="text-xs text-emerald-700 hover:text-emerald-850 font-extrabold bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2.5 rounded-2xl transition-all hover:scale-105 cursor-pointer inline-flex items-center gap-1.5 border border-emerald-250"
             >
               <Download className="w-3.5 h-3.5" />
-              Télécharger PDF
+              <span className="hidden sm:inline">Télécharger</span> PDF
             </button>
             <button
               type="button"
               onClick={handleDownloadExcel}
-              className="text-xs text-indigo-700 hover:text-indigo-850 font-extrabold bg-indigo-50 hover:bg-indigo-100 px-4 py-2.5 rounded-full transition-all hover:scale-105 cursor-pointer inline-flex items-center gap-1.5 border border-indigo-250"
+              className="text-xs text-indigo-700 hover:text-indigo-850 font-extrabold bg-indigo-50 hover:bg-indigo-100 px-3.5 py-2.5 rounded-2xl transition-all hover:scale-105 cursor-pointer inline-flex items-center gap-1.5 border border-indigo-250"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              Télécharger Excel
+              <span className="hidden sm:inline">Télécharger</span> Excel
             </button>
             {!isReadOnly && (
               <button
                 id="btn-reset-defaults"
                 type="button"
                 onClick={resetToProfileDefaults}
-                className="text-xs text-indigo-600 hover:text-indigo-700 font-extrabold bg-indigo-50 hover:bg-indigo-100 px-4 py-2.5 rounded-full transition-all hover:scale-105 cursor-pointer"
+                className="text-xs text-slate-600 hover:text-slate-800 font-bold bg-white hover:bg-slate-100 px-3.5 py-2.5 rounded-2xl transition-all border border-slate-250 cursor-pointer"
+                title="Réinitialiser tous les jours aux valeurs par défaut du profil"
               >
-                Réinitialiser avec horaires par défaut
+                Réinitialiser
               </button>
             )}
           </div>
         </div>
 
+        {/* WEEK SELECTOR BAR (Shown in Week Mode) */}
+        {viewMode === 'week' && daysByWeek.length > 0 && (
+          <div className="p-4 bg-slate-50/90 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex items-center justify-between sm:justify-start gap-2">
+              <button
+                type="button"
+                disabled={safeWeekIndex === 0}
+                onClick={() => setSelectedWeekIndex(prev => Math.max(0, prev - 1))}
+                className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 shadow-2xs flex items-center gap-1 text-xs font-bold"
+                title="Semaine précédente"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span className="hidden md:inline">Semaine préc.</span>
+              </button>
+
+              <span className="text-xs font-extrabold text-slate-700 sm:hidden">
+                Semaine {safeWeekIndex + 1} / {daysByWeek.length}
+              </span>
+
+              <button
+                type="button"
+                disabled={safeWeekIndex === daysByWeek.length - 1}
+                onClick={() => setSelectedWeekIndex(prev => Math.min(daysByWeek.length - 1, prev + 1))}
+                className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 shadow-2xs flex items-center gap-1 text-xs font-bold"
+                title="Semaine suivante"
+              >
+                <span className="hidden md:inline">Semaine suiv.</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Week Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-thin">
+              {daysByWeek.map((w, idx) => {
+                const totals = calculateWeekTotals(w.days);
+                const isSelected = idx === safeWeekIndex;
+                const firstDay = w.days[0];
+                const lastDay = w.days[w.days.length - 1];
+                const dateLabel = firstDay && lastDay 
+                  ? `${new Date(firstDay.date + 'T00:00:00').getDate()} - ${new Date(lastDay.date + 'T00:00:00').getDate()} ${new Date(lastDay.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short' })}`
+                  : `Semaine ${idx + 1}`;
+
+                return (
+                  <button
+                    key={w.mondayDateStr}
+                    type="button"
+                    onClick={() => setSelectedWeekIndex(idx)}
+                    className={`px-3 py-2 rounded-2xl text-left border transition-all cursor-pointer flex flex-col shrink-0 ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-md ring-2 ring-indigo-200 scale-102'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black tracking-tight uppercase whitespace-nowrap">
+                        Semaine {idx + 1}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {totals.overtime > 0 && (
+                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full whitespace-nowrap ${
+                            isSelected ? 'bg-amber-400 text-slate-950 font-black' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            +{formatHours(totals.overtime)}
+                          </span>
+                        )}
+                        {totals.absentDays > 0 && (
+                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ${
+                            isSelected ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700'
+                          }`}>
+                            {totals.absentDays}j abs.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-[10px] mt-0.5">
+                      <span className={isSelected ? 'text-indigo-200' : 'text-slate-400'}>
+                        {dateLabel}
+                      </span>
+                      <span className={`font-black ${
+                        isSelected ? 'text-white' : totals.declared >= totals.required && totals.required > 0 ? 'text-emerald-600' : 'text-slate-600'
+                      }`}>
+                        {formatHours(totals.declared)}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* WEEKLY PORTFOLIO & PREVIOUS OVERTIME REPORT WIDGET */}
+        {viewMode === 'week' && currentWeekTotals && (
+          <div id="weekly-portfolio-overview" className="p-5 md:p-6 bg-slate-900 text-white border-b border-slate-800">
+            <div className="space-y-4">
+              {/* Header bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-400/20">
+                    <Briefcase className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">
+                      Portefeuille d'heures de la semaine & Reste d'heures sup.
+                    </h4>
+                    <p className="text-xs text-indigo-200/90 font-medium">
+                      Semaine {safeWeekIndex + 1} {currentWeekGroup ? `(${formatWeekRange(currentWeekGroup.mondayDateStr)})` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-slate-400">
+                    Semaine {safeWeekIndex + 1} sur {daysByWeek.length}
+                  </span>
+                  <span className={`px-2.5 py-1 rounded-full text-[11px] font-black border ${
+                    weekBalance >= 0 
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' 
+                      : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                  }`}>
+                    Solde semaine : {weekBalance >= 0 ? '+' : '-'}{formatHours(Math.abs(weekBalance))}
+                  </span>
+                </div>
+              </div>
+
+              {/* 3 Interactive Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                
+                {/* CARD 1: Portefeuille Semaine en cours */}
+                <div className="bg-white/5 hover:bg-white/8 transition border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+                        <Clock className="w-3 h-3 text-indigo-400" />
+                        Portefeuille Semaine {safeWeekIndex + 1}
+                      </span>
+                      <span className="text-[10px] font-extrabold text-slate-400">
+                        Objectif : {formatHours(weekRequired)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-2xl lg:text-3xl font-black tracking-tight text-white">
+                        {formatHours(weekDeclared)}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        effectuées
+                      </span>
+                    </div>
+
+                    {/* Breakdown */}
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-white/10 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-medium">Heures normales</span>
+                        <span className="font-extrabold text-slate-200 text-xs">
+                          {formatHours(currentWeekTotals.regular)}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block font-medium">Heures sup. sem.</span>
+                        <span className={`font-black text-xs ${weekOvertime > 0 ? 'text-amber-300' : 'text-slate-400'}`}>
+                          {weekOvertime > 0 ? `+${formatHours(weekOvertime)}` : '0h00'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="mt-3.5 space-y-1">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                      <span>Progression contrat</span>
+                      <span className={weekCompletionRate >= 100 ? 'text-emerald-400' : 'text-slate-300'}>
+                        {weekCompletionRate}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          weekCompletionRate >= 100 ? 'bg-emerald-400' : 'bg-indigo-400'
+                        }`}
+                        style={{ width: `${Math.min(100, weekCompletionRate)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CARD 2: Reste / Report Heures Sup. des Semaines Précédentes */}
+                <div className="bg-white/5 hover:bg-white/8 transition border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <History className="w-3 h-3 text-amber-400" />
+                        Reste Semaines Précédentes
+                      </span>
+                      <span className="text-[10px] font-extrabold text-slate-400">
+                        {safeWeekIndex > 0 ? `Semaines 1 à ${safeWeekIndex}` : 'Début de mois'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className={`text-2xl lg:text-3xl font-black tracking-tight ${
+                        previousWeeksSummary.totalPreviousOvertime > 0 ? 'text-amber-300' : 'text-slate-300'
+                      }`}>
+                        {previousWeeksSummary.totalPreviousOvertime > 0 
+                          ? `+${formatHours(previousWeeksSummary.totalPreviousOvertime)}` 
+                          : '0h00'}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        heures sup. reportées
+                      </span>
+                    </div>
+
+                    {/* Detail breakdown per previous week */}
+                    <div className="mt-3 pt-2.5 border-t border-white/10">
+                      {safeWeekIndex === 0 ? (
+                        <div className="text-[11px] text-slate-400 font-medium leading-relaxed">
+                          <span className="text-indigo-300 font-bold block mb-0.5">Semaine initiale :</span>
+                          Aucune semaine antérieure dans ce mois. Vos heures supplémentaires seront reportées sur les semaines suivantes.
+                          {previousMonthSheet && previousMonthOvertime > 0 && (
+                            <div className="mt-1.5 text-[10px] text-amber-300/90 font-semibold">
+                              ⓘ Reliquat mois précédent ({previousMonthSheet.monthDate}) : +{formatHours(previousMonthOvertime)}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1">
+                            <span>Détail par semaine antérieure :</span>
+                            <span className="text-slate-400">Clic pour voir</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 max-h-16 overflow-y-auto pr-1">
+                            {previousWeeksSummary.previousWeeks.map(pw => (
+                              <button
+                                key={pw.index}
+                                type="button"
+                                onClick={() => setSelectedWeekIndex(pw.index)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 text-[10px] font-extrabold text-slate-200 transition cursor-pointer"
+                                title={`Consulter la Semaine ${pw.weekNumber} (${pw.dateRangeLabel})`}
+                              >
+                                <span>S{pw.weekNumber}:</span>
+                                <span className={pw.totals.overtime > 0 ? 'text-amber-300' : 'text-slate-300'}>
+                                  {pw.totals.overtime > 0 ? `+${formatHours(pw.totals.overtime)}` : '0h'}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-white/10 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400 font-medium">Solde net sem. antérieures :</span>
+                    <span className={`font-black ${
+                      previousWeeksSummary.totalPreviousBalance >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {previousWeeksSummary.totalPreviousBalance >= 0 ? '+' : '-'}{formatHours(Math.abs(previousWeeksSummary.totalPreviousBalance))}
+                    </span>
+                  </div>
+                </div>
+
+                {/* CARD 3: Cumul Global Heures Sup. à Date */}
+                <div className="bg-white/5 hover:bg-white/8 transition border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                        <TrendingUp className="w-3 h-3 text-emerald-400" />
+                        Cumul Heures Sup. à Date
+                      </span>
+                      <span className="text-[10px] font-extrabold text-slate-400">
+                        Fin Semaine {safeWeekIndex + 1}
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className={`text-2xl lg:text-3xl font-black tracking-tight ${
+                        cumulativeOvertime > 0 ? 'text-emerald-300' : 'text-slate-300'
+                      }`}>
+                        {cumulativeOvertime > 0 ? `+${formatHours(cumulativeOvertime)}` : '0h00'}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        cumul total à cette date
+                      </span>
+                    </div>
+
+                    {/* Formula breakdown */}
+                    <div className="mt-3 pt-2.5 border-t border-white/10 space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400">Report semaines préc.</span>
+                        <span className="font-extrabold text-slate-300">
+                          +{formatHours(previousWeeksSummary.totalPreviousOvertime)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400">Générées cette semaine</span>
+                        <span className={`font-extrabold ${weekOvertime > 0 ? 'text-amber-300' : 'text-slate-300'}`}>
+                          +{formatHours(weekOvertime)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-white/10">
+                        <span className="text-slate-300 font-bold">Total sup. cumulées</span>
+                        <span className="font-black text-emerald-400 text-xs">
+                          {formatHours(cumulativeOvertime)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-white/10 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400 font-medium">Heures travaillées cumulées :</span>
+                    <span className="font-bold text-slate-200">
+                      {formatHours(cumulativeDeclared)} / {formatHours(cumulativeRequired)}
+                    </span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="divide-y divide-slate-100">
-          {daysByWeek.map(({ mondayDateStr, days }) => {
+          {weeksToRender.map(({ mondayDateStr, days }) => {
             const weekTotals = calculateWeekTotals(days);
             return (
               <div key={mondayDateStr} className="divide-y divide-slate-100 bg-white">
@@ -988,6 +1649,36 @@ export default function TimesheetSubmission({
                         {weekTotals.overtime > 0 ? ` + ${formatHours(weekTotals.overtime)} supplémentaires` : ''}
                       </span>
                     </div>
+
+                    {viewMode === 'week' && previousWeeksSummary.totalPreviousOvertime > 0 && (
+                      <div className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200 flex items-center gap-1.5 shadow-2xs">
+                        <History className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Report sem. préc. : <strong>+{formatHours(previousWeeksSummary.totalPreviousOvertime)}</strong></span>
+                      </div>
+                    )}
+
+                    {!isReadOnly && (
+                      <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+                        <button
+                          type="button"
+                          onClick={() => handleFillContract(days.map(d => d.date))}
+                          title="Remplir toute cette semaine avec vos horaires contractuels"
+                          className="text-[11px] font-black bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1 shadow-xs hover:scale-105"
+                        >
+                          <Zap className="w-3 h-3" />
+                          <span>Remplir semaine</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openFillModal('week', days.map(d => d.date), formatWeekRange(mondayDateStr))}
+                          title="Options avancées (heures personnalisées, poser des congés, vider...)"
+                          className="text-[11px] font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1 shadow-2xs hover:scale-105"
+                        >
+                          <SlidersHorizontal className="w-3 h-3 text-slate-500" />
+                          <span>Options...</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1413,6 +2104,247 @@ export default function TimesheetSubmission({
           </div>
         )}
       </div>
+
+      {/* QUICK FILL MODAL (Week / Month) */}
+      {fillModalOpen && fillModalTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
+            
+            {/* Modal Header */}
+            <div className="p-5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-900">
+                    Remplissage rapide
+                  </h4>
+                  <p className="text-xs text-slate-500 font-medium truncate max-w-[280px]">
+                    {fillModalTarget.title} ({fillModalTarget.dates.length} jours)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFillModalOpen(false)}
+                className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition cursor-pointer"
+                title="Fermer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="p-3 bg-slate-100/70 border-b border-slate-200 flex flex-wrap gap-1.5">
+              {[
+                { id: 'contract', label: 'Horaires contrat', icon: Clock },
+                { id: 'custom', label: 'Personnalisé', icon: SlidersHorizontal },
+                { id: 'absence', label: 'Congés / Absence', icon: Palmtree },
+                { id: 'clear', label: 'Vider', icon: Trash2 },
+              ].map(tab => {
+                const Icon = tab.icon;
+                const isActive = fillModalTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setFillModalTab(tab.id as any)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      isActive
+                        ? 'bg-white text-indigo-600 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Modal Tab Content */}
+            <div className="p-6 overflow-y-auto space-y-5">
+              {fillModalTab === 'contract' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-indigo-50/60 border border-indigo-150 rounded-2xl text-xs text-indigo-900 space-y-2">
+                    <p className="font-bold flex items-center gap-1.5 text-indigo-800">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      Application de votre contrat standard
+                    </p>
+                    <p className="text-slate-600 leading-relaxed font-medium">
+                      Cette action configure automatiquement chaque jour de la période sélectionnée selon vos horaires prévus par défaut (ex: Lundi au Vendredi travaillés selon votre profil, week-ends en repos).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleFillContract(fillModalTarget.dates)}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs transition cursor-pointer shadow-md shadow-indigo-150 flex items-center justify-center gap-2 hover:scale-[1.01]"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Appliquer les horaires du contrat
+                  </button>
+                </div>
+              )}
+
+              {fillModalTab === 'custom' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-slate-600">
+                    Définissez un volume horaire identique à appliquer sur toute la période :
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                        Matin (heures)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="12"
+                        step="0.5"
+                        value={customMorningHours}
+                        onChange={(e) => setCustomMorningHours(parseFloat(e.target.value) || 0)}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-150 outline-hidden"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                        Après-midi (heures)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="12"
+                        step="0.5"
+                        value={customAfternoonHours}
+                        onChange={(e) => setCustomAfternoonHours(parseFloat(e.target.value) || 0)}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-150 outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-600">Total par jour travaillé :</span>
+                    <span className="font-black text-indigo-600 text-sm">
+                      {formatHours(customMorningHours + customAfternoonHours)}
+                    </span>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={customOnlyWorkdays}
+                      onChange={(e) => setCustomOnlyWorkdays(e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-slate-700">
+                      Uniquement les jours ouvrés (du lundi au vendredi)
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => handleFillCustom(fillModalTarget.dates, customMorningHours, customAfternoonHours, customOnlyWorkdays)}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs transition cursor-pointer shadow-md shadow-indigo-150 flex items-center justify-center gap-2 hover:scale-[1.01]"
+                  >
+                    <Check className="w-4 h-4" />
+                    Appliquer ces horaires ({formatHours(customMorningHours + customAfternoonHours)} / jour)
+                  </button>
+                </div>
+              )}
+
+              {fillModalTab === 'absence' && (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                      Type d'absence
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'paid', label: 'Congé payé 🌴' },
+                        { id: 'unpaid', label: 'Sans solde ⏳' },
+                        { id: 'sick', label: 'Arrêt maladie 🩺' },
+                        { id: 'recovery', label: 'Récupération ⏰' },
+                        { id: 'other', label: 'Autre motif 📄' },
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setAbsenceType(opt.id as any)}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-left ${
+                            absenceType === opt.id
+                              ? 'bg-rose-50 border-rose-400 text-rose-800 font-black ring-1 ring-rose-200'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                      Motif / Justification (optionnel)
+                    </label>
+                    <input
+                      type="text"
+                      value={absenceReason}
+                      onChange={(e) => setAbsenceReason(e.target.value)}
+                      placeholder="Ex: Congés annuels, Rendez-vous..."
+                      className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:border-rose-400 focus:ring-1 focus:ring-rose-100 outline-hidden"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={absenceOnlyWorkdays}
+                      onChange={(e) => setAbsenceOnlyWorkdays(e.target.checked)}
+                      className="w-4 h-4 text-rose-600 border-slate-300 rounded focus:ring-rose-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-slate-700">
+                      Poser uniquement sur les jours ouvrés prévus
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => handleFillAbsence(fillModalTarget.dates, absenceType, absenceReason, absenceOnlyWorkdays)}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs transition cursor-pointer shadow-md shadow-rose-150 flex items-center justify-center gap-2 hover:scale-[1.01]"
+                  >
+                    <Palmtree className="w-4 h-4" />
+                    Poser cette absence sur la période
+                  </button>
+                </div>
+              )}
+
+              {fillModalTab === 'clear' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 space-y-1">
+                    <p className="font-bold flex items-center gap-1.5 text-amber-800">
+                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      Attention
+                    </p>
+                    <p className="text-slate-600 leading-relaxed font-medium">
+                      Cette action réinitialisera toutes les heures à 0h et désactivera les jours de la période sélectionnée.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleClearDays(fillModalTarget.dates)}
+                    className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black text-xs transition cursor-pointer shadow-md flex items-center justify-center gap-2 hover:scale-[1.01]"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-400" />
+                    Vider toutes les heures de la période (0h)
+                  </button>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

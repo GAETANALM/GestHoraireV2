@@ -888,6 +888,7 @@ export default function App() {
             <TimesheetSubmission
               currentUser={currentUser}
               timesheet={currentSubmissionSheet}
+              allTimesheets={timesheets}
               onSaveTimesheet={handleSaveTimesheet}
               onSelectMonth={setSelectedMonth}
             />
